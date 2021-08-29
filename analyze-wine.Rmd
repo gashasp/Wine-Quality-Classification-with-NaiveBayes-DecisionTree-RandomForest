@@ -1,0 +1,580 @@
+---
+title: "Analyze Quality Wine with Naive Bayes, Decision Tree, and Random Forest"
+author: "Gasha Sarwono"
+output: 
+  html_document:
+    theme: flatly
+    higlight: zenburn
+    toc: true
+    toc_float:
+      collapsed: true
+    df_print: paged
+---
+
+![](D:\Data Scientist\wine.jpg)
+
+## Background
+
+**This is data characteristic about wine quality, like chemical content and quality standard.**
+
+**My purpose use this data is to analysis quality of wine based on chemical content.**
+
+**Description Data:**
+
+- fixed acidity: most acids involved with wine
+
+- volatile acidity: amount of acetic acid in wine
+
+- citric acid: found in small quantities
+
+- residual sugar: amount of sugar remaining after wine fermentation/production
+
+- chlorides: amount of salt in the wine
+
+- free sulfur dioxide: free forms of S02, prevents microbial growth and the oxidation of wine
+
+- total sulfur dioxide: amount of free and bound forms of S02
+
+- density: the density of water depending on the percent alcohol and sugar content
+
+- pH: describes how acidic or basic a wine is on a scale 0-14 (very acidic: 0, very basic: 14); most wines are between 3-4 on the pH scale
+
+- sulphates: an antimicrobial and antioxidant
+
+- alcohol: the percent alcohol content of the wine
+
+**The data I get from Kaggle with this following link:**
+
+https://www.kaggle.com/ronitf/heart-disease-uci
+
+## Set Up
+
+**Activated Library**
+
+```{r message=FALSE, warning=FALSE}
+
+library(dplyr) #wrangling data
+library(tidyverse) #make plot
+library(caret) #confussion matrix
+library(rsample) #sampling data
+library(e1071) #naive bayes
+library(partykit) #decisioin tree
+library(randomForest) #random forest
+library(ROCR) #check ROC
+
+options(scipen = 999)
+```
+
+**Import Data**
+
+```{r}
+wine <- read.csv("winequality-red.csv")
+wine
+```
+
+## Exploratory Data Analysis 
+
+**Check Data Type**
+
+```{r}
+glimpse(wine)
+```
+
+All variable appropriate with data type
+
+**Classification target variable**
+
+Make standard score of quality, quality >= 7 is "Good" and quality < 7 is "Bad". Put classification score quality in new column
+
+```{r}
+wine$class <- as.factor(ifelse(wine$quality >= 7 , "Good" , "Bad"))
+wine
+```
+
+**Check missing value**
+
+```{r}
+colSums(is.na(wine))
+```
+
+Data no have missing value
+
+## Modelling
+
+**Cross Validation**
+
+Unselect variable quality because I want machine can learning with label target variable
+
+```{r}
+wine <- 
+  wine %>% 
+  select(-quality)
+```
+
+Make data train for training model (80% proportion from actual data) and data test for testing model (20% proportion from actual data)
+
+```{r warning=FALSE}
+RNGkind(sample.kind = "Rounding")
+set.seed(1616)
+
+index <- sample(nrow(wine), 
+                nrow(wine)*0.8)
+
+wine.train <- wine[index, ]
+wine.test <- wine[-index, ]
+```
+
+**Check proportion data train**
+
+Check proportion because training model maybe can optimal if the data balance
+
+```{r}
+prop.table(table(wine.train$class))
+```
+
+Data train imbalance, so we need try to make balance with downsampling methode. After that compare performance with data train not using tunning imbalance.
+
+```{r}
+wine_train_down <- downSample(x = wine.train %>%  select(-class),
+                              y = wine.train$class,
+                              yname = "class")
+
+prop.table(table(wine_train_down$class))
+```
+
+### Naive Bayes
+
+#### #Using Tunning
+
+**Make Naive Bayes Model**
+
+```{r}
+model_naive_tun <- naiveBayes(x = wine_train_down %>% select(-class), 
+                          y = wine_train_down$class, 
+                          laplace = 1) 
+```
+
+**Make Prediction and Evaluation Model**
+
+```{r}
+pred_naive_tun <- predict(object= model_naive_tun,
+                           newdata = wine.test,
+                           type="class")
+
+confusionMatrix(data= pred_naive_tun,
+                reference= wine.test$class,
+                positive="Good")
+```
+
+**Check Performance Model**
+
+1. Receiver-Operating Curve (ROC)
+
+ROC is a curve are plots correlation between True Positive Rate (Sensitivity or Recall) and False Positive Rate (Specificity). Good model ideally "High TP and Low FP"
+
+```{r}
+wine_predProb_tun <- predict(model_naive_tun, newdata = wine.test,type = "raw")
+head(wine_predProb_tun)
+```
+
+Check ROC with plot
+
+```{r}
+#create prediction object
+wine_roc_tun <- prediction(predictions = wine_predProb_tun[, 2],
+                       labels = as.numeric(wine.test$class == "Good"))
+
+#create performance with prediction object
+perf_tun <- performance(prediction.obj = wine_roc_tun,
+                    measure = "tpr", # tpr = true positive rate
+                    x.measure = "fpr") #fpr = false positive rate
+                    
+#create lot
+plot(perf_tun)
+abline(0,1, lty = 2)
+```
+
+Based on plot, line make a curve arc (High True Positive and Low False Positive) its mean good model
+
+2. Area Under ROC Curve (AUC)
+
+AUC show large are under ROC curve, parameter AUC if value close to 1, model good.
+
+```{r}
+auc_tun <- performance(prediction.obj = wine_roc_tun, 
+                   measure = "auc")
+auc_tun@y.values
+```
+Value AUC 0.864411, close to 1 its means good model
+
+#### #Without using Tunning
+
+**Make Naive Bayes Model**
+
+```{r}
+model_naive <- naiveBayes(x = wine.train %>% select(-class), 
+                          y = wine.train$class, 
+                          laplace = 1)  
+```
+
+**Make Prediction and Evaluation Model**
+
+```{r}
+pred_naive <- predict(object= model_naive,
+                           newdata = wine.test,
+                           type="class")
+
+confusionMatrix(data= pred_naive,
+                reference= wine.test$class,
+                positive="Good")
+```
+
+**Check Performance Model**
+
+1. Receiver-Operating Curve (ROC)
+
+ROC is a curve are plots correlation between True Positive Rate (Sensitivity or Recall) and False Positive Rate (Specificity). Good model ideally "High TP and Low FP"
+
+```{r}
+wine_predProb <- predict(model_naive, newdata = wine.test,type = "raw")
+head(wine_predProb)
+```
+
+Check ROC with plot
+
+```{r}
+#create prediction object
+wine_roc <- prediction(predictions = wine_predProb[, 2],
+                       labels = as.numeric(wine.test$class == "Good"))
+
+#create performance with prediction object
+perf <- performance(prediction.obj = wine_roc,
+                    measure = "tpr", # tpr = true positive rate
+                    x.measure = "fpr") #fpr = false positive rate
+                    
+#create lot
+plot(perf)
+abline(0,1, lty = 2)
+```
+
+Based on plot, line make a curve arc (High True Positive and Low False Positive) its mean good model
+
+2. Area Under ROC Curve (AUC)
+
+AUC show large are under ROC curve, parameter AUC if value close to 1, model good.
+
+```{r}
+auc<- performance(prediction.obj = wine_roc, 
+                   measure = "auc")
+auc@y.values
+```
+Value AUC 0.8764168, close to 1 its means good model
+
+**Interpretation Naive Bayes Model**
+
+- After compare modeling using and without using tuning imblance, model with using tuning imbalance is better based on Accuracy dan Sensitivity (Recall). So for modelling using with tuning.
+
+- Accuracy : 0.7312 –> 73.1% model to correctly guess the target (Good / Bad).
+
+- Sensitivity (Recall) : 0.8837 –> 88.3% from all the positive actual data, capable proportion of model to guess right.
+
+- Specificity : 0.7076 –> 70.7% from all the negative actual data, capable proportion of model to guess right.
+
+- Pos Pred (Precision) : 0.3193 –> 31.9% from all the prediction result, capable model to correctly guess the positive class.
+
+Based on Confussion Matrix model Naive Bayes, value Accuracy (0.7312 or 73.1%) and (Recall 0.8837 or 88.3% model). Its means Accuracy model can predict quality wine Good or Bad 73.1% and model can predict quality wine Good is 88.3%.
+
+### Decision Tree
+
+#### #Without using Tunning
+
+**Make Decision Tree Model**
+
+```{r}
+set.seed(1616)
+model_dt <- ctree(class ~ ., wine)
+```
+
+**Make Prediction and Evaluation Model**
+
+Prediction and Evaluation Model using *data test*
+
+```{r}
+pred_dt <- predict(model_dt, newdata = wine.test, type = "response")
+
+confusionMatrix(pred_dt, wine.test$class, positive = "Good")
+```
+
+Prediction and Evaluation Model using *data train*
+
+```{r}
+pred_dt_train <- predict(model_dt, newdata = wine.train, type = "response")
+confusionMatrix(pred_dt_train, wine.train$class, positive = "Good")
+```
+
+**Summary Prediction and Evaluation**
+
+```{r}
+model_dt_recap <- c("wine.test", "wine.train")
+Accuracy <- c(0.8969,0.8952)
+Recall <- c(0.4651,0.5000)
+
+tabelmodelrecap <- data.frame(model_dt_recap,Accuracy,Recall)
+
+print(tabelmodelrecap)
+```
+
+Cause value Accuracy with data_test and data_train imbalance (overfitting), model must try to prunning and compare performance result.
+
+#### #Using Tunning
+
+**Tuning Model**
+
+Create new model with pruning treatment
+
+```{r}
+set.seed(1616)
+
+model_dt_tuned <- ctree(class ~ ., wine_train_down,
+                        control = ctree_control(mincriterion = 0.5,
+                                                minsplit = 35, #40
+                                                minbucket = 20)) #12
+```
+
+**Make Prediction and Evaluation Model**
+
+Prediction and Evaluation Model using *data test*
+
+```{r}
+pred_dt_test_tunes <- predict(model_dt_tuned, newdata = wine.test, type = "response")
+confusionMatrix(pred_dt_test_tunes, wine.test$class, positive = "Good")
+```
+
+Prediction and Evaluation Model using *data train*
+
+```{r}
+pred_dt_train_tunes <- predict(model_dt_tuned, newdata = wine_train_down, type = "response")
+confusionMatrix(pred_dt_train_tunes, wine_train_down$class, positive = "Good")
+```
+
+**Summary Prediction and Evaluation**
+
+```{r}
+model_dt_recap_tuning <- c("wine.test.tuning", "wine.train.tuning")
+Accuracy_tuning <- c(0.7875,0.8046)
+Recall_tuning <- c(0.7674,0.7931)
+
+tabelmodelrecap2 <- data.frame(model_dt_recap_tuning,Accuracy_tuning,Recall_tuning)
+
+print(tabelmodelrecap2)
+```
+
+#### Compare with using tuning and without tuning
+
+```{r}
+model_dt_recap_all <- c("wine.test", "wine.train", "wine.test.tuning", "wine.train.tuning")
+Accuracy <- c(0.8969,0.8952,0.7875,0.8046)
+Recall <- c(0.4651,0.5000,0.7674,0.7931)
+
+tabelmodelrecapall <- data.frame(model_dt_recap_all,Accuracy,Recall)
+
+print(tabelmodelrecapall)
+```
+
+Based on compare modeling using tuning and without tuning Value Accuracy and Recall with tuning is better than without tuning, so we can use model using tuning
+
+**Create Plot Decision Tree**
+
+```{r}
+model_dt_tuned
+```
+
+```{r fig.width = 20}
+plot(model_dt_tuned,type="simple")
+```
+
+**Interpretation Decision Tree Model**
+
+- Nodes 1 is Root Nodes (Highest node in the tree structure, and has no parent)
+
+- Nodes 2,3,4,9,10,and 11 is Inner Nodes (Node of a tree that has child nodes)
+
+- Nodes 5,6,7,8,12,13,14,and 15 is Terminal Nodes (Node that does not have child nodes)
+
+### Random Forest
+
+#### #Using Tuning
+
+**K-Fold Cross Validation** 
+
+Split data by $k$ part, where each part is used to testing data.
+
+Make model random forest using 5-fold cross validation and repeat process 3 times, after that save on RDS
+
+```{r}
+set.seed(1616)
+
+ctrl <- trainControl(method = "repeatedcv",
+                      number = 5,
+                      repeats = 3) 
+ 
+model_forest_tun <- train(class ~ .,
+                  data = wine_train_down,
+                  method = "rf", 
+                  trControl = ctrl)
+ 
+saveRDS(model_forest_tun, "model_forest_update_tun.RDS")
+```
+
+**Make Random Forest Model**
+
+Read RDS with name model_rf
+
+```{r}
+model_rf_tun <- readRDS("model_forest_update_tun.RDS")
+model_rf_tun
+```
+
+Use model with mtry (predictor) = 2, because value accuracy more than other mtry 
+
+**Model Evaluation**
+
+Check model error (OOB or Out-Off-Bag) with finalModel
+
+```{r}
+model_rf_tun$finalModel
+```
+
+Result (OOB or Out-Off-Bag) is 16.95% , its mean this model has 83.05% of accuracy
+
+**Check Importance Variabel**
+
+```{r warning=F, error=FALSE}
+varImp(model_rf_tun)
+```
+
+```{r}
+plot(varImp(model_rf_tun))
+```
+
+Based on plot above, 3 most important variable is alcohol, sulphates and volatile.acidity
+
+**Make Prediction and Evaluation Model**
+
+Make prediction and check model evaluation with positive class "Good" using data_test
+
+```{r}
+pred_rf_tun <- predict(model_rf_tun, wine.test, type = "raw")
+confusionMatrix(pred_rf_tun, wine.test$class, positive = "Good")
+```
+
+So now compare performance with model without using tuning.
+
+#### #Using Tuning
+
+**K-Fold Cross Validation** 
+
+```{r}
+set.seed(1616)
+
+ctrl <- trainControl(method = "repeatedcv",
+                      number = 5,
+                      repeats = 3) 
+ 
+model_forest <- train(class ~ .,
+                  data = wine.train,
+                  method = "rf", 
+                  trControl = ctrl)
+ 
+saveRDS(model_forest, "model_forest_update.RDS")
+```
+
+**Make Random Forest Model**
+
+Read RDS with name model_rf
+
+```{r}
+model_rf <- readRDS("model_forest_update.RDS")
+model_rf
+```
+
+Use model with mtry (predictor) = 2, because value accuracy more than other mtry 
+
+**Model Evaluation**
+
+Check model error (OOB or Out-Off-Bag) with finalModel
+
+```{r}
+model_rf$finalModel
+```
+
+Result (OOB or Out-Off-Bag) is 16.95% , its mean this model has 83.05% of accuracy
+
+**Check Importance Variabel**
+
+```{r warning=F, error=FALSE}
+varImp(model_rf)
+```
+
+```{r}
+plot(varImp(model_rf))
+```
+
+Based on plot above, 3 most important variable is alcohol, sulphates and volatile.acidity
+
+**Make Prediction and Evaluation Model**
+
+Make prediction and check model evaluation with positive class "Good" using data_test
+
+```{r}
+pred_rf <- predict(model_rf, wine.test, type = "raw")
+confusionMatrix(pred_rf, wine.test$class, positive = "Good")
+```
+
+#### Compare Performance
+
+```{r}
+model_rf_recap_all <- c("without tuning", "with tuning")
+Accuracy <- c(0.7781,0.9188)
+Recall <- c(0.9070,0.58140)
+
+tabelmodelrecaprf <- data.frame(model_rf_recap_all,Accuracy,Recall)
+
+print(tabelmodelrecaprf)
+```
+
+**Interpretation Random Forest Model**
+
+- After compare modeling using and without using tuning imblance, model without using tuning imbalance is better based on Accuracy dan Sensitivity (Recall). So for modelling using without tuning imbalance.
+
+- Accuracy : 0.7781 –> 77.8% model to correctly guess the target (Good / Bad).
+
+- Sensitivity (Recall) : 0.9070 –> 90.7% from all the positive actual data, capable proportion of model to guess right.
+
+- Specificity : 0.7581 –> 75.8% from all the negative actual data, capable proportion of model to guess right.
+
+- Pos Pred (Precision) : 0.3679 –> 36.7% from all the prediction result, capable model to correctly guess the positive class.
+
+Based on Confussion Matrix model Random Forest, value Accuracy (0.7781 or 77.8%) and (Recall 0.9070 or 90.07% model). Its means Accuracy model can predict quality wine Good or Bad 77.8% and model can predict quality wine Good is 90.07%.
+
+## Conclusion
+
+```{r}
+Model_Name <- c("Naive Bayes", "Decission Tree", "Random Forest")
+Accuracy <- c(0.7312,0.8046,0.7781)
+Recall <- c(0.8837,0.7931,0.9070)
+Specificity <- c(0.7076,0.8161,0.7581)
+Precision <- c(0.3193,0.8118,0.3679)
+
+modelrecapall <- data.frame(Model_Name,Accuracy,Recall,Specificity,Precision)
+
+print(modelrecapall)
+```
+
+After make 3 model we get result Accuracy, Recall, Specificity, and Precision. In this case we will choose Decision Tree Model, because model can predict quality wine "Good" and "Bad" with accuracy 80.4% and model can predict quality "Good" 79.3%. So we want all wine quality Bad not mix with all wine quality Good.
+
+
+
+
+
+
